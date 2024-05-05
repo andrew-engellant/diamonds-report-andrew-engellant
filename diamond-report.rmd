@@ -1,0 +1,305 @@
+---
+title: "Diamond Supplier Report"
+author: "Andrew Engellant"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+html_document:
+    toc: true
+    toc_depth: 6
+    number_sections: true
+    toc_float: true
+    code_folding: hide
+    theme: flatly
+    code_download: true
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+
+library(tidyverse)
+library(scales)
+library(arm)
+library(tidyverse)
+
+d <- read_tsv("diamond-data.txt")
+```
+
+## Introduction
+
+In business, a common saying is "no good deed goes unpunished," humorously noting how success in one area often leads to increased expectations in others. This has been your experience after your comparative analysis revealed that Supplier B’s prices were reasonable, considering they supplied larger diamonds than Suppliers A and C. 
+
+Your boss, the director of product analytics, loved the analysis where 
+you uncovered that Supplier B's prices were fair, it's just that they had 
+larger diamonds than A and C. And she shared that analysis
+with the product managers of a few different verticals and the full jewelry 
+team. 
+
+Responding to this interest, you are tasked with demystifying your findings and the underpinning model—referred to as `lm_final`—for a broader audience, particularly the jewelry team. Teamed up with a seasoned data scientist, you've refined `lm_final` to not only satisfy statistical rigor but also cater to practical business insights.
+
+This assignment challenges you to translate the complex facets of your analysis into insights that resonate with non-experts. It's an exercise in bridging data science with business acumen, honing your ability to communicate technical findings in an accessible manner. Whether through a detailed report or presentation, your goal is to illuminate the intriguing patterns and implications discovered through your analysis. Use the principles discussed in this week's lecture to respond to specific questions outlined below, ensuring clarity and thoroughness in your explanations.
+
+## Model Building
+
+```{r}
+
+# Convert to factors
+d <- d %>% 
+  mutate(
+    clarity = fct_reorder(clarity,price),
+    cut = fct_reorder(cut,price),
+    color = fct_reorder(color,price)
+  )
+
+# To make life easier, let's collapse clarity and color to fewer levels
+d <- d %>%
+  mutate(
+    grp_clarity = case_when(
+      clarity %in% c("IF", "VVS1", "VVS2") ~ "High Clarity",
+      clarity %in% c("VS1", "VS2") ~ "Medium Clarity",
+      clarity %in% c("SI1", "SI2", "I1") ~ "Low Clarity",
+      TRUE ~ as.character(clarity)  # This line handles any unexpected categories
+    ),
+    grp_color = case_when(
+      color %in% c("D", "E") ~ "High Color",
+      color %in% c("F", "G") ~ "Medium Color",
+      color %in% c("H", "I", "J") ~ "Low Color"
+    )
+  ) %>% 
+  mutate(grp_color = fct_reorder(grp_color,price),
+         grp_clarity = fct_reorder(grp_clarity,price))
+
+
+# This could have been your original model
+lm_base <- lm(price ~ grp_clarity + grp_color + cut + carat + supplier ,
+              data=d)
+
+# And here's the final model you came up with. This model balances
+# the needs of the business with statistical accuracy. 
+lm_final <- lm(price ~ grp_clarity*grp_color + grp_color*carat + cut + supplier,
+          data=d)
+
+#anova(lm_base,lm_final)
+```
+
+
+## Model Explanation
+
+<!--
+  As a reminder, this is a Markdown comment, so it doesn't appear in the
+  knitted HTML. 
+  
+  Please make sections for each one of these questions or topics. Explore
+  the idea to an extent that you think makes sense. These answers don't
+  have to be super long. Remember you're writing for an audience 
+  that is good with numbers but maybe don't know technical statistical
+  terms very well.
+  
+  1. Overall Assessment of Model Performance
+  2. Explain the terms in the model related to "cut".
+  3. How do color and carat interact? 
+  4. How do color and clarity interact? 
+  5. How important are the interaction terms? 
+  6. Ignoring carat, what aspect of a diamond is the most important to determining price?
+  7. Refit the model on 75% of the data and predict the remaining 25%. Which 
+     diamonds do you do the best on? Which ones do you do the worst on? You can
+     talk about individual diamonds, but we're more interested in any patterns 
+     you find. (I've made this section for you to get you started.)
+     
+     
+  General Tips:
+
+  * Keep It Simple: Use everyday language to explain statistical concepts, avoiding jargon as much as possible.
+  * Use Visuals: Graphs and charts can convey complex ideas more easily than text, making your explanations
+    clearer to a non-technical audience.
+  * Offer Examples: Provide examples from the data to make abstract concepts tangible.
+  * Be Concise: Given the non-technical audience, focus on clear, 
+    direct explanations without overloading on details.  
+
+
+-->
+
+### Model Analysis
+```{r}
+library(arm)
+display(lm_final)
+anova(lm_final)
+```
+
+#### 1. Overall Assessment of Model Performance
+
+This model does an excellent job of predicting the cost of a diamond from each supplier based on the diamond's size, cut, color, and clarity. This model typically predicts within $1,240 of the true price of a diamond, and an impressive 90% of the total variation in diamond prices can be explained using these variables alone. 
+
+#### 2. Explaination of "Cut" Coefficient
+
+The cut of a diamond can have substantial effects on the price of the diamond. Diamonds with an __Ideal__ cut are typically priced \$1,420 higher than diamonds with a __Fair__ cut and \$410 higher than diamonds with a __Good__ cut. Interestingly, both __Very Good__ and __Premium__ cut diamonds are priced about \$160 less than diamonds with an __Ideal__ cut, but there appears to be no significant difference between prices of __Very Good__ and __Premium__ cut diamonds.
+
+#### 3. How do Color and Carat Interact?
+
+```{r}
+new_data <- d %>%
+  expand_grid(
+    new_grp_color = unique(d$grp_color),
+    new_carat = 1:3
+)
+
+new_data <- d %>%
+         mutate(price = predict(lm_final, d))
+
+ggplot(new_data,
+       aes(x=carat, y=price, color = grp_color)) + 
+  geom_smooth(method = "lm", se = FALSE) +  
+  theme_minimal() + 
+  labs(x="Carat",
+       y="Expected Price",
+       title="Effect of Interaction Between Color and Carat",
+       color = "Color Group")
+
+```
+
+The coefficients for this model suggest that a one carat increase in diamond size has about a \$220 higher increase in expected price for diamonds of medium color compared to diamonds of high color. The expected price of diamonds of low color, however, increase by roughly \$1200 less than diamonds of high color for each unit increase in carat size. Carat size has a greater impact on expected price when the diamonds have medium or high color. The above plot displays the effects on expected price for each group of diamond color as carat size increases. The medium and high color diamonds (green and red lines respectively) have steeper slopes than the low color diamonds (blue line) so their expected price increases more rapidly as carat size increases.
+
+#### 4. How do color and clarity interact?
+
+```{r}
+# Create data for the plot
+plot_data <- expand.grid(
+  grp_color = unique(d$grp_color),
+  grp_clarity = unique(d$grp_clarity),
+  carat = median(d$carat),
+  cut = 'Very Good',
+  supplier = 'Supplier A'
+)
+
+#Add in predicted price
+plot_data$price <- predict(lm_final, newdata = plot_data)
+
+# Plot data
+custom_labels <- c("High Color" = "High", "Medium Color" = "Medium", "Low Color" = "Low")
+
+ggplot(plot_data, aes(x = factor(grp_color, labels = custom_labels), y = price)) +
+  geom_boxplot() +
+  facet_wrap(~grp_clarity) +
+  labs(x = "Color Group", y = "Price") +
+  scale_x_discrete(labels = custom_labels) +
+  theme_minimal()
+```
+
+The above plot displays the interaction between group color and group clarity, and their effects on predicted price for an 'average diamond'. It's expected that the price will decrease as clarity decreases, just as displayed above. What's interesting is how the price changes differently between color groups when the clarity is different. For instance, the price of a low color diamond is significantly less than a medium colored diamond when the clarity is high, but is comparable when the the clarity is low. Also, the difference in price between high color and medium color diamonds is significant when the clarity is high or low, but is small for diamonds with medium clarity. Overall, changes in color group have the greatest impact on diamonds that have high clarity. 
+
+#### 5. How Important are the Interaction Terms 
+```{r}
+anova(lm_final)
+```
+The interaction between group color and carat plays an large role in determining the price of a diamond. The F value in the table above displays this importance. The higher the F value, the greater the influence the variable has on the model's prediction of a diamond's price. We should also note the Pr(>F) values, which indicate the significance of each F value, but both interaction terms are highly significant so we can ignore this portion. The interaction between group clarity and group color plays a small role in this model, but not nearly as important as the interaction between group color and carat.
+
+#### 6. Ignoring carat, what aspect of a diamond is the most important to determining price?
+
+Again, looking at the F values from the table above, we can see that carat plays the most important role in determining diamond price. If we ignore this variable, however, the next most important aspects are group color and group clarity. These variable have the next highest F values and therefore do a better job of predicting the variance in price than other variables like cut and supplier. 
+
+Interestingly, each of these two variables independently play large roles in determining price, but the interaction between them has little impact. This means that the value of a diamond still increases from medium to high color and from medium to high clarity, but the presence of both high color and high clarity is not considered more rare than either occurring alone. 
+
+#### 7. Testing on a holdout sample
+
+Let's refit the model on a sample of the data so that we can assess performance
+on the portion that's held out. 
+
+```{r}
+set.seed(20240301)
+
+training_idx <- sample(nrow(d),size=round(nrow(d)*0.75),replace=F)
+testing_idx <- (1:nrow(d))[!(1:nrow(d)) %in% training_idx]
+training_data <- d[training_idx,]
+testing_data <- d[testing_idx,]
+
+refit_final <- update(lm_final,data=training_data)
+
+testing_data <- testing_data %>%
+  mutate(pred_price = predict(refit_final, newdata = testing_data))
+
+testing_data <- testing_data %>%
+  mutate(residuals = price - pred_price)
+
+# Calculate the sum of squares of residuals (RSS)
+SS_res <- sum(testing_data$residuals^2)
+
+# Calculate the mean of the observed values
+mean_observed <- mean(testing_data$price)
+
+# Calculate the total sum of squares (TSS)
+SS_tot <- sum((testing_data$price - mean_observed)^2)
+
+# Calculate R-squared
+R_squared <- 1 - (SS_res / SS_tot)
+
+R_squared
+```
+
+
+
+```{r}
+# Calculate the residual standard error (RSE)
+n <- nrow(testing_data)  # Number of observations
+p <- length(coef(refit_final)) - 1  # Number of coefficients (excluding intercept)
+RSE <- sqrt(sum(testing_data$residuals^2) / (n - p - 1))
+
+RSE
+```
+
+The model did an excellent job of predicting the price of the diamonds in our test data set. Over 90% of the variation in diamond price was predicted by this model, and the average prediction was about $1200 away from the true price of the diamond. 
+
+```{r}
+# Sort the data frame based on the absolute values of the residuals
+sorted_data <- testing_data[order(testing_data$residuals, decreasing = TRUE), c("price", "pred_price", "carat", "grp_color", "grp_clarity", "cut")]
+
+# Print the top five rows with the highest residuals
+head(sorted_data, 8)
+```
+
+Our model tends to underestimate the price of 1 carat diamonds that have both High Color and High Clarity. The 8 diamonds with the worst underestimates can be seen above.
+
+```{r}
+sorted_data <- testing_data[order(testing_data$residuals, decreasing = FALSE), c("price", "pred_price", "carat", "grp_color", "grp_clarity", "cut")]
+
+# Print the top five rows with the highest residuals
+head(sorted_data, 8)
+```
+
+This model tends to overestimate the price of high carat diamonds that have both Low Color and Low Clarity. The 8 diamonds with the worst overestimates can be seen above.
+
+```{r}
+sorted_data <- testing_data[order(abs(testing_data$residuals), decreasing = FALSE), c("price", "pred_price", "carat", "grp_color", "grp_clarity", "cut")]
+
+# Print the top five rows with the highest residuals
+head(sorted_data, 8)
+```
+
+The model appears to do best when predicting the price of small carat diamonds with medium color and clarity, and desirable cuts. The 8 diamonds with the best predictions can be seen above.
+
+## Appendix: Description of the Diamonds Dataset
+
+Our diamonds dataset is a comprehensive collection diamond data from our suppliers, 
+representing various attributes of a large number of diamonds. 
+The dataset includes the following attributes:
+
+- `Carat`: Numeric. Represents the weight of the diamond, measured in carats. A higher carat number indicates a heavier diamond.
+
+- `Cut`: Categorical. Indicates the quality of the cut of the diamond, which affects its symmetry, brightness, and overall appearance. The categories include Fair, Good, Very Good, Premium, and Ideal, with Ideal being the highest quality.
+
+- `Color`: Categorical. Denotes the color grade of the diamond, which ranges from J (lowest grade, more color) to D (highest grade, colorless). The grading scale moves from a noticeable color to colorless.
+
+- `Clarity`: Categorical. Describes the clarity of the diamond, which refers to the absence of inclusions and blemishes. The categories range from I1 (Inclusions 1, lowest clarity) to IF (Internally Flawless, highest clarity).
+
+- `Depth`: Numeric. The depth percentage of the diamond, calculated as the ratio of the diamond's total depth (from table to culet) to its average diameter.
+
+- `Table`: Numeric. Refers to the width of the top facet of the diamond, known as the table, relative to the widest point of the diamond. It is expressed as a percentage.
+
+- `Price`: Numeric. The price of the diamond in US dollars.
+
+- `X`: Numeric. The length of the diamond in millimeters.
+
+- `Y`: Numeric. The width of the diamond in millimeters.
+
+- `Z`: Numeric. The depth of the diamond in millimeters.
+
+- `Supplier`: Categorical. Represents the supplier of the diamonds to a major online marketplace (e.g., Amazon). Each diamond is sourced from one of several suppliers, each with varying reputations and qualities of service. The suppliers are anonymized and labeled as "Supplier A", "Supplier B", "Supplier C", etc.
+
